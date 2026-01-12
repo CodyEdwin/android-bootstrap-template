@@ -1,0 +1,85 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        cache: 'gradle'
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.gradle/packages
+          build
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Create local.properties
+      run: |
+        mkdir -p ${{ github.workspace }}
+        echo "sdk.dir=${{ github.workspace }}/android-sdk" > local.properties
+
+    - name: Download Android SDK Command Line Tools
+      run: |
+        mkdir -p ${{ github.workspace }}/android-sdk/cmdline-tools
+        cd ${{ github.workspace }}/android-sdk/cmdline-tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+        unzip -q commandlinetools-linux-13114758_latest.zip
+        mv cmdline-tools latest
+        rm commandlinetools-linux-13114758_latest.zip
+
+    - name: Accept Android SDK licenses
+      run: |
+        yes | ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+    - name: Install Android SDK components
+      run: |
+        ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+    - name: Build with Gradle
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleDebug --stacktrace
+
+    - name: Upload APK as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug.apk
+        path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 7
+
+    - name: Upload Gradle build reports
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: build-reports
+        path: app/build/reports/
+        retention-days: 7
+
+    - name: Upload Gradle logs
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: gradle-logs
+        path: ~/.gradle/daemon/
+        retention-days: 7
