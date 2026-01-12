@@ -60,13 +60,13 @@ download_command_line_tools() {
     
     case "$OS_TYPE" in
         win)
-            url="$url/win-11076708_latest.zip"
+            url="$url/win-13114758_latest.zip"
             ;;
         mac)
-            url="$url/mac-11076708_latest.zip"
+            url="$url/mac-13114758_latest.zip"
             ;;
         linux|*)
-            url="$url/linux-11076708_latest.zip"
+            url="$url/linux-13114758_latest.zip"
             ;;
     esac
     

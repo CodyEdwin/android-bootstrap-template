@@ -28,26 +28,29 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipEntry
 
 class AndroidSdkBootstrap {
     def projectDir
+    def settings
     def localSdkDir
     def osName
     def sdkVersion = "34"  // Target Android API level
     def buildToolsVersion = "34.0.0"
     
-    AndroidSdkBootstrap(projectDir) {
+    AndroidSdkBootstrap(projectDir, settings) {
         this.projectDir = projectDir
+        this.settings = settings
         this.localSdkDir = new File(projectDir, "local-sdk")
         this.osName = System.getProperty("os.name").toLowerCase()
     }
     
     def run() {
         println "\n=========================================="
-        println "Android SDK Auto-Bootstrap Starting"
+        println "Android SDK Auto-Bootstrap"
         println "==========================================\n"
         
-        // Check if SDK is already configured
+        // Check if SDK is already configured via local.properties
         def localProps = new File(projectDir, "local.properties")
         if (localProps.exists()) {
             def sdkDir = readSdkDir(localProps)
@@ -57,16 +60,50 @@ class AndroidSdkBootstrap {
             }
         }
         
-        // Download and install SDK if not present
-        downloadAndInstallSdk()
+        // Check if SDK is already in local-sdk directory
+        if (isSdkValid(localSdkDir.absolutePath)) {
+            generateLocalProperties()
+            println "✓ Android SDK found at: ${localSdkDir.absolutePath}"
+            return
+        }
         
-        // Generate local.properties
-        generateLocalProperties()
+        // Try to download and install SDK
+        println "Android SDK not found. Attempting automatic download..."
+        println ""
         
-        println "\n=========================================="
-        println "Android SDK Auto-Bootstrap Complete"
-        println "SDK Location: ${localSdkDir.absolutePath}"
-        println "==========================================\n"
+        try {
+            downloadAndInstallSdk()
+            generateLocalProperties()
+            
+            println "\n=========================================="
+            println "Android SDK Auto-Bootstrap Complete"
+            println "SDK Location: ${localSdkDir.absolutePath}"
+            println "==========================================\n"
+            
+        } catch (Exception e) {
+            println ""
+            println "⚠️  Automatic SDK download failed"
+            println "Error: ${e.message}"
+            println ""
+            println "Please manually install the Android SDK:"
+            println "1. Download Android Command Line Tools from:"
+            println "   https://developer.android.com/studio#command-line-tools"
+            println ""
+            println "2. Extract to: ${localSdkDir.absolutePath}/cmdline-tools"
+            println ""
+            println "3. Install required components:"
+            println "   - platforms;android-34"
+            println "   - build-tools;34.0.0"
+            println "   - platform-tools"
+            println ""
+            println "4. Create local.properties with:"
+            println "   sdk.dir=${localSdkDir.absolutePath}"
+            println ""
+            
+            // Create a placeholder local.properties for now
+            // The build will fail but will have clear instructions
+            generateLocalProperties()
+        }
     }
     
     def readSdkDir(File localProps) {
@@ -101,56 +138,57 @@ class AndroidSdkBootstrap {
         def cmdLineToolsUrl = getCommandLineToolsUrl()
         def tempZip = new File(projectDir, "cmdline-tools.zip")
         
-        try {
-            // Download command line tools
-            downloadFile(cmdLineToolsUrl, tempZip)
+        // Download command line tools
+        downloadFile(cmdLineToolsUrl, tempZip)
             
-            // Extract to temporary location
-            def tempExtract = new File(projectDir, "cmdline-tools-temp")
-            tempExtract.mkdirs()
-            unzip(tempZip, tempExtract)
+        // Extract to temporary location
+        def tempExtract = new File(projectDir, "cmdline-tools-temp")
+        tempExtract.mkdirs()
+        unzip(tempZip, tempExtract)
             
-            // Move to final location
-            def cmdLineTools = new File(localSdkDir, "cmdline-tools")
-            if (cmdLineTools.exists()) {
-                cmdLineTools.deleteDir()
-            }
-            
-            // The zip extracts to a folder named 'cmdline-tools' or similar
-            def extractedFolder = tempExtract.listFiles().find { it.name.contains("cmdline-tools") }
-            if (extractedFolder) {
-                extractedFolder.renameTo(cmdLineTools)
-            } else {
-                // Try alternative structure
-                new File(tempExtract, "cmdline-tools").renameTo(cmdLineTools)
-            }
-            
-            // Clean up
-            tempZip.delete()
-            tempExtract.deleteDir()
-            
-            println "✓ Command Line Tools installed"
-            
-            // Install required SDK components
-            installSdkComponents(cmdLineTools)
-            
-        } catch (Exception e) {
-            println "ERROR: Failed to download/install Android SDK"
-            println "Error details: ${e.message}"
-            throw new GradleException("Android SDK installation failed", e)
+        // Move to final location
+        def cmdLineTools = new File(localSdkDir, "cmdline-tools")
+        if (cmdLineTools.exists()) {
+            cmdLineTools.deleteDir()
         }
+            
+        // The zip extracts to a folder named 'cmdline-tools' or similar
+        def extractedFolder = tempExtract.listFiles().find { it.name.contains("cmdline-tools") }
+        if (extractedFolder) {
+            extractedFolder.renameTo(cmdLineTools)
+        } else {
+            // Try alternative structure
+            def altFolder = new File(tempExtract, "cmdline-tools")
+            if (altFolder.exists()) {
+                altFolder.renameTo(cmdLineTools)
+            } else {
+                throw new GradleException("Could not find cmdline-tools in extracted zip")
+            }
+        }
+            
+        // Clean up
+        tempZip.delete()
+        tempExtract.deleteDir()
+            
+        println "✓ Command Line Tools installed"
+            
+        // Install required SDK components
+        installSdkComponents(cmdLineTools)
     }
     
     def getCommandLineToolsUrl() {
         // Download the appropriate version for the OS
         def baseUrl = "https://dl.google.com/android/repository/commandlinetools"
         
+        // Use version 13114758 (latest as of early 2025)
+        def version = "13114758"
+        
         if (osName.contains("win")) {
-            return "${baseUrl}/win-11076708_latest.zip"
+            return "${baseUrl}/win-${version}_latest.zip"
         } else if (osName.contains("mac") || osName.contains("darwin")) {
-            return "${baseUrl}/mac-11076708_latest.zip"
+            return "${baseUrl}/mac-${version}_latest.zip"
         } else {
-            return "${baseUrl}/linux-11076708_latest.zip"
+            return "${baseUrl}/linux-${version}_latest.zip"
         }
     }
     
@@ -224,7 +262,7 @@ class AndroidSdkBootstrap {
         }
         
         // Make executable on Unix systems
-        if (!osName.contains("win")) {
+        if (!osName.contains("win") && sdkManager.exists()) {
             sdkManager.setExecutable(true)
         }
         
@@ -253,30 +291,24 @@ class AndroidSdkBootstrap {
             }
         }
         
-        // Install components
-        components.each { component ->
-            println "  Installing: ${component}"
-            
-            def process = sdkManager.execute([
-                "--sdk_root=${localSdkDir.absolutePath}",
-                "--install",
-                component,
-                "--no_https"
-            ])
-            
-            // Handle license acceptance
-            def output = process.inputStream.text
-            if (output.contains("License") || output.contains("Accept")) {
-                // Accept all licenses
-                def acceptProcess = sdkManager.execute([
+        // Install components using sdkmanager if available
+        if (sdkManager.exists()) {
+            components.each { component ->
+                println "  Installing: ${component}"
+                
+                def process = sdkManager.execute([
                     "--sdk_root=${localSdkDir.absolutePath}",
-                    "--licenses",
+                    "--install",
+                    component,
                     "--no_https"
-                ], true)
+                ])
             }
+        } else {
+            println "  ⚠️  sdkmanager not found, skipping component installation"
+            println "  Please run sdkmanager manually after SDK installation"
         }
         
-        println "✓ SDK components installed"
+        println "✓ SDK components installation complete"
     }
     
     def generateLocalProperties() {
@@ -287,5 +319,5 @@ class AndroidSdkBootstrap {
 }
 
 // Run the bootstrap process
-def bootstrap = new AndroidSdkBootstrap(projectDir)
+def bootstrap = new AndroidSdkBootstrap(settings.rootProject.projectDir, settings)
 bootstrap.run()
