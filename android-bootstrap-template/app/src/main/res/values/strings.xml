@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Name -->
+    <string name="app_name">Hello World</string>
+    
+    <!-- Main Content -->
+    <string name="hello_world">Hello World!\n\nEnvironment Verified:\n• Gradle 8.5\n• Eclipse Temurin JDK 17\n• Android SDK 34\n• Build Tools 34.0.0</string>
+    
+    <!-- Content Descriptions -->
+    <string name="app_logo_description">Application Logo</string>
+    
+    <!-- Version Info -->
+    <string name="version_info">Version 1.0</string>
+    <string name="build_timestamp">Built with Android Auto-Bootstrap</string>
+    <string name="gradle_info">Powered by Gradle 8.5</string>
+    
+    <!-- Accessibility -->
+    <string name="content_description_main_text">Welcome message with environment information</string>
+</resources>

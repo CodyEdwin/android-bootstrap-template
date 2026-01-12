@@ -1,0 +1,291 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "AndroidBootstrapTemplate"
+include ':app'
+
+// =============================================================================
+// ANDROID SDK AUTO-BOOTSTRAP SCRIPT
+// This script runs during Gradle initialization to download and configure
+// the Android SDK if it's not already present on the system.
+// =============================================================================
+
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.util.zip.ZipInputStream
+
+class AndroidSdkBootstrap {
+    def projectDir
+    def localSdkDir
+    def osName
+    def sdkVersion = "34"  // Target Android API level
+    def buildToolsVersion = "34.0.0"
+    
+    AndroidSdkBootstrap(projectDir) {
+        this.projectDir = projectDir
+        this.localSdkDir = new File(projectDir, "local-sdk")
+        this.osName = System.getProperty("os.name").toLowerCase()
+    }
+    
+    def run() {
+        println "\n=========================================="
+        println "Android SDK Auto-Bootstrap Starting"
+        println "==========================================\n"
+        
+        // Check if SDK is already configured
+        def localProps = new File(projectDir, "local.properties")
+        if (localProps.exists()) {
+            def sdkDir = readSdkDir(localProps)
+            if (sdkDir && isSdkValid(sdkDir)) {
+                println "✓ Android SDK found at: ${sdkDir}"
+                return
+            }
+        }
+        
+        // Download and install SDK if not present
+        downloadAndInstallSdk()
+        
+        // Generate local.properties
+        generateLocalProperties()
+        
+        println "\n=========================================="
+        println "Android SDK Auto-Bootstrap Complete"
+        println "SDK Location: ${localSdkDir.absolutePath}"
+        println "==========================================\n"
+    }
+    
+    def readSdkDir(File localProps) {
+        try {
+            def properties = new Properties()
+            localProps.withInputStream { properties.load(it) }
+            return properties.getProperty('sdk.dir')
+        } catch (Exception e) {
+            return null
+        }
+    }
+    
+    def isSdkValid(String sdkPath) {
+        def sdkRoot = new File(sdkPath)
+        if (!sdkRoot.exists() || !sdkRoot.isDirectory()) {
+            return false
+        }
+        
+        // Check for required components
+        def platformsDir = new File(sdkRoot, "platforms")
+        def buildToolsDir = new File(sdkRoot, "build-tools")
+        def platformToolsDir = new File(sdkRoot, "platform-tools")
+        
+        return platformsDir.exists() && 
+               buildToolsDir.exists() && 
+               platformToolsDir.exists()
+    }
+    
+    def downloadAndInstallSdk() {
+        println "Downloading Android Command Line Tools..."
+        
+        def cmdLineToolsUrl = getCommandLineToolsUrl()
+        def tempZip = new File(projectDir, "cmdline-tools.zip")
+        
+        try {
+            // Download command line tools
+            downloadFile(cmdLineToolsUrl, tempZip)
+            
+            // Extract to temporary location
+            def tempExtract = new File(projectDir, "cmdline-tools-temp")
+            tempExtract.mkdirs()
+            unzip(tempZip, tempExtract)
+            
+            // Move to final location
+            def cmdLineTools = new File(localSdkDir, "cmdline-tools")
+            if (cmdLineTools.exists()) {
+                cmdLineTools.deleteDir()
+            }
+            
+            // The zip extracts to a folder named 'cmdline-tools' or similar
+            def extractedFolder = tempExtract.listFiles().find { it.name.contains("cmdline-tools") }
+            if (extractedFolder) {
+                extractedFolder.renameTo(cmdLineTools)
+            } else {
+                // Try alternative structure
+                new File(tempExtract, "cmdline-tools").renameTo(cmdLineTools)
+            }
+            
+            // Clean up
+            tempZip.delete()
+            tempExtract.deleteDir()
+            
+            println "✓ Command Line Tools installed"
+            
+            // Install required SDK components
+            installSdkComponents(cmdLineTools)
+            
+        } catch (Exception e) {
+            println "ERROR: Failed to download/install Android SDK"
+            println "Error details: ${e.message}"
+            throw new GradleException("Android SDK installation failed", e)
+        }
+    }
+    
+    def getCommandLineToolsUrl() {
+        // Download the appropriate version for the OS
+        def baseUrl = "https://dl.google.com/android/repository/commandlinetools"
+        
+        if (osName.contains("win")) {
+            return "${baseUrl}/win-11076708_latest.zip"
+        } else if (osName.contains("mac") || osName.contains("darwin")) {
+            return "${baseUrl}/mac-11076708_latest.zip"
+        } else {
+            return "${baseUrl}/linux-11076708_latest.zip"
+        }
+    }
+    
+    def downloadFile(String urlStr, File destFile) {
+        println "  Downloading: ${urlStr}"
+        
+        def url = new URL(urlStr)
+        def connection = url.openConnection()
+        connection.setConnectTimeout(120000)
+        connection.setReadTimeout(300000)
+        
+        // Create parent directories
+        destFile.parentFile.mkdirs()
+        
+        // Download with progress
+        try (InputStream inStream = connection.getInputStream();
+             FileOutputStream outStream = new FileOutputStream(destFile)) {
+            
+            def buffer = new byte[8192]
+            def bytesRead
+            def totalBytes = connection.contentLength
+            def downloadedBytes = 0
+            
+            while ((bytesRead = inStream.read(buffer)) != -1) {
+                outStream.write(buffer, 0, bytesRead)
+                downloadedBytes += bytesRead
+                
+                if (totalBytes > 0) {
+                    def percent = (downloadedBytes * 100) / totalBytes
+                    if (percent % 5 == 0) {
+                        print "\r  Progress: ${percent}%"
+                    }
+                }
+            }
+            println ""
+        }
+    }
+    
+    def unzip(File zipFile, File destDir) {
+        println "  Extracting..."
+        destDir.mkdirs()
+        
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
+            ZipEntry entry
+            while ((entry = zis.getNextEntry()) != null) {
+                def file = new File(destDir, entry.name)
+                
+                if (entry.directory) {
+                    file.mkdirs()
+                } else {
+                    file.parentFile.mkdirs()
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        byte[] buffer = new byte[8192]
+                        int len
+                        while ((len = zis.read(buffer)) > 0) {
+                            fos.write(buffer, 0, len)
+                        }
+                    }
+                }
+                zis.closeEntry()
+            }
+        }
+    }
+    
+    def installSdkComponents(File cmdLineTools) {
+        println "Installing Android SDK components..."
+        
+        def sdkManager = new File(cmdLineTools, "bin/sdkmanager")
+        if (osName.contains("win")) {
+            sdkManager = new File(cmdLineTools, "bin/sdkmanager.bat")
+        }
+        
+        // Make executable on Unix systems
+        if (!osName.contains("win")) {
+            sdkManager.setExecutable(true)
+        }
+        
+        // Accept licenses and install components
+        def components = [
+            "platforms;android-${sdkVersion}",
+            "build-tools;${buildToolsVersion}",
+            "platform-tools"
+        ]
+        
+        // Create licenses directory
+        def licensesDir = new File(localSdkDir, "licenses")
+        licensesDir.mkdirs()
+        
+        // Accept licenses automatically
+        def licenses = [
+            "24333f8a63b6825ea9c5514f83c2829b004d1fee": "Android SDK License",
+            "d56f5187479451eabf01fb78af6dfcb131a6481e": "Android SDK License",
+            "84831b9409646a918e30573bab4c9c91346d8abd": "Android SDK Preview License"
+        ]
+        
+        licenses.each { hash, name ->
+            def licenseFile = new File(licensesDir, hash)
+            if (!licenseFile.exists()) {
+                licenseFile.text = "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n"
+            }
+        }
+        
+        // Install components
+        components.each { component ->
+            println "  Installing: ${component}"
+            
+            def process = sdkManager.execute([
+                "--sdk_root=${localSdkDir.absolutePath}",
+                "--install",
+                component,
+                "--no_https"
+            ])
+            
+            // Handle license acceptance
+            def output = process.inputStream.text
+            if (output.contains("License") || output.contains("Accept")) {
+                // Accept all licenses
+                def acceptProcess = sdkManager.execute([
+                    "--sdk_root=${localSdkDir.absolutePath}",
+                    "--licenses",
+                    "--no_https"
+                ], true)
+            }
+        }
+        
+        println "✓ SDK components installed"
+    }
+    
+    def generateLocalProperties() {
+        def localProps = new File(projectDir, "local.properties")
+        localProps.text = "sdk.dir=${localSdkDir.absolutePath}\n"
+        println "✓ Generated local.properties"
+    }
+}
+
+// Run the bootstrap process
+def bootstrap = new AndroidSdkBootstrap(projectDir)
+bootstrap.run()

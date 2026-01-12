@@ -1,0 +1,15 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+plugins {
+    id 'com.android.application' version '8.2.2' apply false
+    id 'com.android.library' version '8.2.2' apply false
+}
+
+// This script handles Android SDK auto-provisioning during build
+// It runs before any project configuration to ensure SDK is available
+
+def sdkInstallScript = new File("${projectDir}/scripts/install-sdk.sh")
+if (sdkInstallScript.exists()) {
+    println "Android SDK installation script found"
+} else {
+    println "SDK will be managed via settings.gradle bootstrap"
+}
